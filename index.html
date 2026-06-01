@@ -49,17 +49,18 @@
 
     #header h1 {
       margin: 0;
-      font-size: 15px;
-      font-weight: 700;
-      color: rgba(255, 255, 255, 0.94);
-      letter-spacing: 0.15px;
-      line-height: 1.3
+      font-size: 16.5px;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: 0.1px;
+      line-height: 1.3;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
     }
 
     #header .subtitle {
       margin: 3px 0 0;
       font-size: 11px;
-      color: rgba(255, 255, 255, 0.42);
+      color: rgba(255, 255, 255, 0.5);
       line-height: 1.3
     }
 
@@ -357,7 +358,7 @@
       box-shadow: 0 2px 8px rgba(200, 30, 30, 0.4);
     }
 
-    @media(max-width:649px) {
+    @media(max-width:549px) {
       #tooltip {
         bottom: 0 !important;
         left: 0 !important;
@@ -430,7 +431,7 @@
     <div id="header">
       <div class="header-text">
         <h1>Reported Sexual Assault Cases Across Bangladesh</h1>
-        <p class="subtitle">By upazila &middot; newspaper reports 2012&ndash;2025</p>
+        <p class="subtitle">Explore reported cases by upazila, district &amp; division &mdash; hover or tap any area</p>
       </div>
       <div id="view-toggle"></div>
     </div>
@@ -478,37 +479,8 @@
         division: Array.from(divisionTotals.values())
       };
 
-      // ---------- Intelligent, data-driven color scale (dark theme) ----------
-      // Reported-case counts are heavily right-skewed (most areas low, a few hotspots).
-      // A log(1+v) transform spreads that skew evenly across the ramp, so low/mid/high
-      // stay distinguishable instead of all collapsing into one dim band. The domain is
-      // recomputed per view from that view's own data, so intensity is always meaningful.
-      var rampInterpolator = d3.interpolateHcl("#45121a", "#ff4b3e");
-      function makeScale(values) {
-        var nz = values.filter(function (v) { return v > 0; }).sort(d3.ascending);
-        if (!nz.length) return function () { return rampInterpolator(0); };
-        // Percentile window: anchor low at p5, cap high at p95. The middle 90% of the
-        // data spreads across the full ramp; sparse areas clamp dark, outliers (e.g. a
-        // single dominant city/division) clamp to the brightest. Robust to skew AND
-        // outliers, and recomputed per view from that view's own distribution.
-        var a = d3.quantile(nz, 0.05);
-        var b = d3.quantile(nz, 0.95);
-        if (b <= a) b = d3.max(nz);
-        if (b <= a) b = a + 1;
-        var la = Math.log1p(a), lb = Math.log1p(b);
-        var denom = (lb - la) || 1;
-        return function (v) {
-          var t = (Math.log1p(Math.max(0, v)) - la) / denom;
-          return rampInterpolator(Math.max(0, Math.min(1, t)));
-        };
-      }
-      var scales = {
-        upazila: makeScale(valuesByView.upazila),
-        district: makeScale(valuesByView.district),
-        division: makeScale(valuesByView.division)
-      };
-
       // ---------- Legend buckets per view ----------
+      // Defined first because the colour scale is anchored to these thresholds.
       function roundNice(x) {
         if (!isFinite(x) || x <= 10) return Math.max(1, Math.round(x || 1));
         var mag = Math.pow(10, Math.floor(Math.log10(x)));
@@ -539,6 +511,57 @@
         }
         return buckets[buckets.length - 1].key;
       }
+      var bucketsByView = {
+        upazila: bucketsFor("upazila"),
+        district: bucketsFor("district"),
+        division: bucketsFor("division")
+      };
+
+      // ---------- Colour scale, anchored to the legend buckets ----------
+      // Multi-hue "ember" ramp: deep maroon -> crimson -> red -> orange -> hot amber.
+      // Hue progression (not just lightness) keeps every step distinguishable on the dark
+      // background, and the brightest amber makes the worst hotspots stand out — in a
+      // sombre warm family appropriate to the subject.
+      // Crucially, each legend bucket maps to exactly one equal slice of the ramp, so a
+      // region's colour is ALWAYS consistent with its legend bucket (a 31–100 area can
+      // never take the amber reserved for 100+). Within a bucket the colour still varies
+      // smoothly with the count, preserving the sense of intensity.
+      // Three distinct "alarm tiers", each its own colour family, so the levels read as
+      // categorically different at a glance:
+      //   0–30   (less alarming)       -> deep red
+      //   31–100 (moderately alarming) -> vivid orange
+      //   100+   (severely alarming)   -> bright amber / gold
+      // Within a tier the colour still deepens with the count (intensity preserved), but
+      // the jump BETWEEN tiers is deliberate and obvious, so a viewer instantly feels the
+      // step up from red to orange to gold.
+      var tierRamps = [
+        d3.interpolateHcl("#5e0f1d", "#bf1f2c"),   // deep maroon -> strong red
+        d3.interpolateHcl("#ed6a12", "#ff9e2e"),   // orange -> warm orange
+        d3.interpolateHcl("#ffd21f", "#fff27a")    // gold -> bright yellow
+      ];
+      function tierColor(i) { return tierRamps[Math.min(i, tierRamps.length - 1)]; }
+      function makeBucketScale(buckets, values) {
+        var n = buckets.length;
+        var dataMax = d3.max(values) || 1;
+        var edges = [buckets[0].lo];
+        buckets.forEach(function (b) {
+          edges.push(b.hi === Infinity ? Math.max(dataMax, b.lo + 1) : b.hi);
+        });
+        return function (v) {
+          v = Math.max(0, v);
+          var i = 0;
+          for (; i < n - 1; i++) { if (v <= edges[i + 1]) break; }
+          var lo = edges[i], hi = edges[i + 1];
+          var frac = hi > lo ? (v - lo) / (hi - lo) : 1;
+          frac = Math.max(0, Math.min(1, frac));
+          return tierColor(i)(frac);
+        };
+      }
+      var scales = {
+        upazila: makeBucketScale(bucketsByView.upazila, valuesByView.upazila),
+        district: makeBucketScale(bucketsByView.district, valuesByView.district),
+        division: makeBucketScale(bucketsByView.division, valuesByView.division)
+      };
 
       var currentView = "upazila";
 
@@ -555,7 +578,7 @@
       var vbH = (bb[1][1] - bb[0][1]) + padY * 2;
       svg.attr("viewBox", vbX + " " + vbY + " " + vbW + " " + vbH).attr("preserveAspectRatio", "xMidYMid meet");
 
-      function isMobile() { return window.innerWidth < 650; }
+      function isMobile() { return window.innerWidth < 550; }
 
       var upazilaGroup = svg.append("g").attr("class", "upazilas-group view-upazila");
       var upazilas = upazilaGroup.selectAll(".upazila")
@@ -686,15 +709,15 @@
         legend.style("top", "8px").style("right", "10px");
 
         var view = currentView;
-        var buckets = bucketsFor(view);
-        var scale = scales[view];
+        var buckets = bucketsByView[view];
         var unitValues = valuesByView[view];
-        var mx = d3.max(unitValues) || 1;
 
-        buckets.forEach(function (b) {
+        var n = buckets.length;
+        buckets.forEach(function (b, i) {
           b.count = unitValues.filter(function (v) { return categoryFor(v, buckets) === b.key; }).length;
-          var rep = b.hi === Infinity ? mx : (b.lo + b.hi) / 2;
-          b.color = scale(rep);
+          // Swatch = the midpoint colour of this tier's family — exactly what the map gives
+          // a value in the middle of the bucket. Keeps legend == map.
+          b.color = tierColor(i)(0.5);
         });
 
         var titleText = view === "division" ? "Cases by Division"
