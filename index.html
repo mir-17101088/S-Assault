@@ -358,7 +358,7 @@
       box-shadow: 0 2px 8px rgba(200, 30, 30, 0.4);
     }
 
-    @media(max-width:549px) {
+    @media (hover: none) and (pointer: coarse) {
       #tooltip {
         bottom: 0 !important;
         left: 0 !important;
@@ -578,7 +578,12 @@
       var vbH = (bb[1][1] - bb[0][1]) + padY * 2;
       svg.attr("viewBox", vbX + " " + vbY + " " + vbW + " " + vbH).attr("preserveAspectRatio", "xMidYMid meet");
 
-      function isMobile() { return window.innerWidth < 550; }
+      // "Mobile" = a genuine touch device (phone/tablet) that needs tap-to-reveal instead
+      // of hover. Detected by INPUT CAPABILITY, not width — so a small-screen laptop, a
+      // narrow window, a responsive iframe column, or browser zoom never wrongly trigger
+      // the mobile bottom-sheet (laptops always report a fine pointer + hover).
+      var touchQuery = window.matchMedia("(hover: none) and (pointer: coarse)");
+      function isMobile() { return touchQuery.matches; }
 
       var upazilaGroup = svg.append("g").attr("class", "upazilas-group view-upazila");
       var upazilas = upazilaGroup.selectAll(".upazila")
@@ -795,6 +800,15 @@
       svg.attr("class", "mode-upazila");
       buildViewToggle();
       buildLegend();
+
+      // If the input capability changes (e.g. a tablet docks a mouse), clear any open
+      // tooltip / bottom-sheet so we don't get stuck in a half-state.
+      function onPointerChange() {
+        tooltip.style("opacity", "0").classed("show", false);
+        upazilas.classed("tapped", false).classed("grp-hover", false);
+      }
+      if (touchQuery.addEventListener) touchQuery.addEventListener("change", onPointerChange);
+      else if (touchQuery.addListener) touchQuery.addListener(onPointerChange);
     })();
   </script>
 </body>
