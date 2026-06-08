@@ -460,12 +460,20 @@
 
       // ---------- Aggregations: district & division totals ----------
       function dKey(p) { return p.dv + " ||| " + p.di; }
-      var districtTotals = d3.rollup(geojson.features,
-        function (v) { return d3.sum(v, function (f) { return f.properties.c; }); },
-        function (f) { return dKey(f.properties); });
-      var divisionTotals = d3.rollup(geojson.features,
-        function (v) { return d3.sum(v, function (f) { return f.properties.c; }); },
-        function (f) { return f.properties.dv; });
+      function uKey(p) { return p.dv + " ||| " + p.di + " ||| " + p.n; }
+
+      var uniqueUpazilas = new Map();
+      geojson.features.forEach(function (f) {
+        uniqueUpazilas.set(uKey(f.properties), f.properties);
+      });
+      var uniqueProps = Array.from(uniqueUpazilas.values());
+
+      var districtTotals = d3.rollup(uniqueProps,
+        function (v) { return d3.sum(v, function (p) { return p.c; }); },
+        function (p) { return dKey(p); });
+      var divisionTotals = d3.rollup(uniqueProps,
+        function (v) { return d3.sum(v, function (p) { return p.c; }); },
+        function (p) { return p.dv; });
 
       function valueFor(p, view) {
         if (view === "division") return divisionTotals.get(p.dv);
@@ -474,7 +482,7 @@
       }
 
       var valuesByView = {
-        upazila: geojson.features.map(function (d) { return d.properties.c; }),
+        upazila: uniqueProps.map(function (p) { return p.c; }),
         district: Array.from(districtTotals.values()),
         division: Array.from(divisionTotals.values())
       };
